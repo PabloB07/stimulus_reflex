@@ -1,30 +1,21 @@
 # Table of contents
 
-* [Welcome](README.md)
-
-## Hello World
-
-* [Setup](hello-world/setup.md)
-* [Quick Start](hello-world/quickstart.md)
-
-## RTFM
-
-* [Calling Reflexes](rtfm/reflexes.md)
-* [Reflex Classes](rtfm/reflex-classes.md)
-* [Integrating CableReady](rtfm/cableready.md)
-* [Life-cycle](rtfm/lifecycle.md)
-* [Morphs](rtfm/morph-modes.md)
-* [Authentication](rtfm/authentication.md)
-* [Persistence](rtfm/persistence.md)
-* [Useful Patterns](rtfm/patterns.md)
-* [Forms](rtfm/working-with-forms.md)
-
-## Appendices
-
-* [Working with Events](appendices/events.md)
-* [Testing \(WIP\)](appendices/testing.md)
-* [Deployment](appendices/deployment.md)
-* [Troubleshooting](appendices/troubleshooting.md)
-* [Release History](appendices/release-history.md)
-* [Glossary](appendices/glossary.md)
-
+* [Page 1](README.md)
+  * [Bienvenida](page-1/bienvenida.md)
+  * [Integrating CableReady](page-1/integrating-cableready.md)
+  * [Reflex Classes](page-1/reflex-classes.md)
+  * [Calling Reflexes](page-1/calling-reflexes.md)
+  * [Quick Start](page-1/quick-start.md)
+  * [Setup](page-1/setup.md)
+  * [Life-cycle](page-1/life-cycle.md)
+  * [Morphs](page-1/morphs.md)
+  * [Authentication](page-1/authentication.md)
+  * [Persistence](page-1/persistence.md)
+  * [Forms](page-1/forms.md)
+  * [Useful Patterns](page-1/useful-patterns.md)
+  * [Testing (WIP)](page-1/testing-wip.md)
+  * [Deployment](page-1/deployment.md)
+  * [Working with Events](page-1/working-with-events.md)
+  * [Glossary](page-1/glossary.md)
+  * [Troubleshooting](page-1/troubleshooting.md)
+  * [Release History](page-1/release-history.md)

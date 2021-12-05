@@ -1,0 +1,204 @@
+# Deployment
+
+### &#x20;<a href="#session-storage" id="session-storage"></a>
+
+**Cookie-based session storage is not currently supported by StimulusReflex.** ActionCable does not have the ability to write cookies, so inside of a Reflex it was possible to read session values while any attempts to store them would silently fail! We called it the _bubble universe_. We have a strategy for restoring cookie session storage in mind, but it's not ready, yet.
+
+Instead, we make the best of things by enabling caching in the development environment. This allows us to:
+
+* assign our user session data to be managed by the cache store
+*
+* catch bugs that otherwise might only occur in production
+
+### &#x20;<a href="#use-redis-as-your-cache-store" id="use-redis-as-your-cache-store"></a>
+
+We want to change the cache store to make use of Redis. First we should enable the `redis` gem, as well as `hiredis`, a native wrapper which is much faster than the Ruby gem alone.
+
+gem "redis", ">= 4.0", :require => \["redis", "redis/connection/hiredis"]
+
+Now that Redis is available to your application, you need to configure your development enviroment:
+
+config/environments/development.rb
+
+config.cache\_store = :redis\_cache\_store, {driver: :hiredis, url: ENV.fetch("REDIS\_URL") { "redis://localhost:6379/1" }}
+
+config.session\_store :cache\_store, key: "\_session\_development", compress: true, pool\_size: 5, expire\_after: 1.year
+
+Please note that `cache_store` is an accessor, while `session_store` is a method. Take care **not** to use an `=` when defining your `session_store`.
+
+Continue reading the [Deployment on Heroku](broken-reference) section below for tips on setting up Redis-backed sessions using the `redis-session-store` gem.
+
+For **caching and session storage**, make sure that your Redis instance is configured to use the `volatile-lru` key expiration strategy. It means that if your Redis instance gets full, it will start ejecting the session data for the users who have likely churned anyhow, while ensuring regular users stay logged in.
+
+### &#x20;<a href="#deployment-on-heroku" id="deployment-on-heroku"></a>
+
+We have seen deployments where combining cache and session storage functions into one Redis database has led to strange behavior, such as forgetting Rails sessions after 10-15 minutes. Luckily, we have an excellent workaround based on splitting up caching and session functions into separate Redis instances.
+
+Heroku allows you to provision multiple Redis instances to your application, both via their [Heroku Redis](https://elements.heroku.com/addons/heroku-redis) and using the Heroku CLI. This is possible at the free tier, so there's nothing to lose and lots to gain by splitting these up.
+
+You could end up with separate Redis instances for: fragment caching, sessions, ActionCable and Sidekiq job queues.
+
+Remember, never store Sidekiq jobs with a `volatile-lru` key expiration strategy. If your job queue runs out of space, you want it sounding every alarm possible.
+
+Install the `redis-session-store` gem into your project, and then in your `production.rb` you can change your session store:
+
+config/environments/production.rb
+
+config.cache\_store = :redis\_cache\_store, {driver: :hiredis, url: ENV.fetch("REDIS\_URL")}
+
+config.session\_store :redis\_session\_store,
+
+key: "\_session\_production",
+
+key\_prefix: "app:session:",
+
+url: ENV.fetch("HEROKU\_REDIS\_MAROON\_URL")
+
+You don't have to use Heroku's Redis addon. If you choose another provider, your configuration will be slightly different - **only Heroku Redis assigns color-based instance names**, for example.
+
+Heroku will give all Redis instances after the first a distinct URL. All you have to do is provide the app\_session\_key and a prefix. In this example, Rails sessions will last a maximum of one year.
+
+### &#x20;<a href="#heroku-redis-secure-urls" id="heroku-redis-secure-urls"></a>
+
+At the time of this writing, the `hiredis` gem does not support SSL. When you provision multiple Heroku Redis addons at the "Hobby" tier, it will give you a "color URL" and a REDIS\_TLS\_URL . You need to use the **non-TLS** one which works just fine without SSL.
+
+If you plan to use the paid "Premium" tier Heroku Redis addons, they use Redis 6 by default and TLS becomes mandatory. Until such time as `hiredis` supports SSL, you will need to create your addon instance by specifying that Redis 5 is to be used:
+
+heroku addons:create heroku-redis:premium-0 --version 5
+
+### &#x20;<a href="#build-packs" id="build-packs"></a>
+
+Generally, only the `heroku/ruby` buildpack is required to successfully deploy a StimulusReflex app on Heroku. However, if you see the error:
+
+`(WARNING: Can't locate the stimulus_reflex npm package [...])`
+
+... we recommend that you try updating your Cedar stack to the latest version. This should be fixed as of Cedar-20.
+
+### &#x20;<a href="#cloudflare-dns" id="cloudflare-dns"></a>
+
+Cloudflare's infrastructure is nothing short of impressive, and they are a great choice for free DNS hosting. However, the default behaviour of their DNS product is to proxy all traffic to your domain. **This includes websocket traffic.**
+
+Your mileage may vary (literally, depending on how far you are from a Cloudflare edge node!) but changing your DNS records from "Proxying" to "DNS Only", you could shave 60-90ms off the real-world execution time of your Reflex actions.
+
+In a more sophisticated setup, you could experiment with hosting your websockets endpoint on a different domain, allowing you to experience the best of both worlds. In fact, this is the specific reason we add `<%= action_cable_meta_tag %>` to our HEADs.
+
+### &#x20;<a href="#nginx-+-passenger" id="nginx-+-passenger"></a>
+
+Specifically, if you experience your server process appear to freeze up when ActionCable is in play, you need to make sure that your `nginx.conf` has the **port 443 section** set up to receive secure websockets:
+
+passenger\_app\_group\_name YOUR\_APP\_HERE\_action\_cable;
+
+passenger\_force\_max\_concurrent\_requests\_per\_process 0;
+
+Please note that **the above is not a complete document**; it's just the fragments often missing from the default configurations found on hosts like Cloud 66.
+
+### &#x20;<a href="#set-your-default_url_options-for-each-environment" id="set-your-default_url_options-for-each-environment"></a>
+
+When you are using Selector Morphs, it is very common to use `ApplicationController.render()` to re-render a partial to replace existing content. It is advisable to give ActionDispatch enough information about your environment that it can pass the right values to any helpers that need to build URL paths based on the current application environment.
+
+If your helper is generating **example.com** URLs, this is for you.
+
+config/environments/development.rb
+
+config.action\_controller.default\_url\_options = {host: "localhost", port: 3000}
+
+config/environments/production.rb
+
+config.action\_controller.default\_url\_options = {host: "stimulusreflex.com"}
+
+Similarly, if you need URL helpers in your mailers:
+
+config/environments/development.rb
+
+config.action\_mailer.default\_url\_options = {host: "localhost", port: 3000}
+
+### &#x20;<a href="#anycable" id="anycable"></a>
+
+We're excited to announce that StimulusReflex now works with [AnyCable](https://github.com/anycable/anycable), a library which allows you to use any WebSocket server (written in any language) as a replacement for your Ruby WebSocket server. You can read more about the dramatic scalability possible with AnyCable in [this post](https://evilmartians.com/chronicles/anycable-actioncable-on-steroids).
+
+We'd love to hear your battle stories regarding the number of simultaneous connections you can achieve both with and without AnyCable. Anecdotal evidence suggests that you can realistically squeeze \~4000 connections with native ActionCable, whereas AnyCable should allow roughly 10,000 connections **per node**. We've even [seen reports](https://nebulab.it/blog/actioncable-vs-anycable-fight/) that ActionCable can benchmark at 20,000 connections, while AnyCable maxes out around 60,000 because it runs out of TCP ports to allocate.
+
+Of course, the message delivery speed - and even delivery _success_ rate - will dip as you start to approach the upper limit, so if you are working on a project successful enough to have this problem, you are advised to switch.
+
+Getting to this point required significant effort and cooperation between members of both projects. You can try out the AnyCable v1.0 release today.
+
+1.  1\.
+
+    Add `gem "anycable-rails", "~> 1.0"` to your `Gemfile`.
+2.  2\.
+
+    Install `anycable-go` v1.0 ([binaries](https://github.com/anycable/anycable-go/releases) available here, Docker images are also [available](https://hub.docker.com/repository/docker/anycable/anycable-go/tags?page=1\&name=preview)).
+3.  3\.
+
+    If you are using the session object, you must select a cache store that is not MemoryStore, which is not compatible with AnyCable.
+
+There is also a brand-new installation wizard which you can access via `rails g anycable:setup` after the gem has been installed.
+
+Official AnyCable documentation for StimulusReflex can be found [here](https://docs.anycable.io/v1/#/ruby/stimulus\_reflex). If you notice any issues with AnyCable support, please tell us about it [here](https://github.com/stimulusreflex/stimulus\_reflex/issues/46).
+
+If you're looking to authenticate AnyCable connections with Devise, the documentation for that process is [here](https://docs.anycable.io/v1/#/ruby/authentication), and there's a good discussion about this process [here](https://github.com/anycable/anycable-rails/issues/127).
+
+### &#x20;<a href="#turbolinks-turbo-drive" id="turbolinks-turbo-drive"></a>
+
+In addition to the dramatic speed benefits associated with swapping the page content without having to load a new page, Turbo Drive will help you minimize the resource consumption of your ActionCable connections as well.
+
+When all of your ActionCable channels (including StimulusReflex) share one memoized `consumer.js` your browser doesn't have to re-establish a new websocket connection with the server on every page. Turbolinks allows your connection to be persisted between page loads.
+
+### &#x20;<a href="#native-mobile-wrappers" id="native-mobile-wrappers"></a>
+
+Turbolinks 5 offered an excellent native mobile [wrapper for building iOS apps](https://github.com/turbolinks/turbolinks-ios) based on web applications. Originally, there was an Android wrapper as well, but that codebase was later deprecated.
+
+Now that Turbo Drive is here, there are new mobile wrappers for both [iOS](https://github.com/hotwired/turbo-ios) and [Android](https://github.com/hotwired/turbo-android), which is incredible news. They are both technically beta, but the Hey email service apps are in production and well-received.
+
+Once we've had an opportunity to build something with these new tools, we will update this space.
+
+### &#x20;<a href="#connecting-actioncable-to-a-different-host" id="connecting-actioncable-to-a-different-host"></a>
+
+If you want to set up your ActionCable backend to accept connections from a different host, you'll need to reconfigure your setup.
+
+First, make sure that you're serving the ActionCable endpoint:
+
+Rails.application.routes.draw do
+
+mount ActionCable.server => '/cable'
+
+Then, you will have to modify your `consumer.js` to connect to your application URL. Note that you can connect to secure websockets via SSL by using`wss://` instead of `ws://`
+
+app/javascript/channels/consumer.js
+
+import { createConsumer } from '@rails/actioncable'
+
+export default createConsumer('wss://myapp.com/cable')
+
+Finally, tweak your production configuration. **Don't disable forgery protection unless it's not working.**
+
+config/environments/production.rb
+
+Rails.application.configure do
+
+config.action\_cable.allowed\_request\_origins
+
+config.action\_cable.url = "wss://myapp.com/cable"
+
+config.action\_cable.disable\_request\_forgery\_protection = true # only if necessary
+
+### &#x20;<a href="#is-stimulusreflex-suitable-for-use-in-developing-countries" id="is-stimulusreflex-suitable-for-use-in-developing-countries"></a>
+
+On the face, serving raw HTML to the client means a smaller download, there's no SPA dynamically rendering a page from JSON (slow) and draining the battery. However, the question deserves a more nuanced treatment - and not just because **some devices might not even support Websockets**.
+
+It's simply true that the team developing StimulusReflex is working on relatively recent, non-mobile computers with subjectively fast, reliable connections to the internet. None of us are actively testing on legacy hardware.
+
+Raw Websockets has more in common with UDP than TCP, in that there's no retry logic or acknowledgement of delivery. Messages can arrive out of order, or not at all.
+
+ActionCable does add some reconnection and retry logic to Websockets that is mostly transparent. If you are disconnected, it will attempt to reconnect. If you try to send data while offline, it will raise an exception unless you handle it.
+
+We offer two suggestions to developers looking to support users with slow, unreliable connections:
+
+1.  1\.
+
+    Don't put destructive database updates in your Reflex actions. Design your app to keep state mutation in your controller actions, and wrap everything important in transactions.
+2.  2\.
+
+    You might need to program defensively using two-stage commits. This means devising ways to acknowledge that transactions were completed. You should also construct your UI to hide action elements like buttons when your connection is dropped.
+
+If you're working through these issues, please get in touch with us on Discord. We will work hard to help.
